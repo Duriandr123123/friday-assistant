@@ -1,0 +1,16 @@
+.venv/
+.env
+data/
+notes/
+logs/
+.tools/
+dist/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+.gradle/
+build/
+local.properties
+*.jks
+*.keystore
+.idea/

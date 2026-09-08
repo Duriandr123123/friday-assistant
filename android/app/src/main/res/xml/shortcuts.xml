@@ -1,0 +1,5 @@
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="record" android:enabled="true" android:icon="@drawable/ic_mic" android:shortcutShortLabel="@string/record_shortcut">
+        <intent android:action="local.jarvis.RECORD" android:targetPackage="local.jarvis.thoughts" android:targetClass="local.jarvis.thoughts.MainActivity" />
+    </shortcut>
+</shortcuts>

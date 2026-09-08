@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Джарвис — мои мысли</title><link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script></head>
+<body><header><div><span class="mark">J</span><strong>Джарвис</strong><span class="muted"> / Мои мысли</span></div><button id="logout" class="secondary" hidden>Выйти</button></header>
+<main><section id="login"><h1>Ваши мысли, в одном месте.</h1><p>Введите токен из файла <b>data/connection.txt</b> в папке проекта.</p>
+<form id="login-form"><label for="token">Токен подключения</label><input id="token" type="password" autocomplete="off" required><button>Открыть заметки</button></form></section>
+<section id="workspace" hidden><div class="heading"><div><h1>Мои мысли</h1><p id="provider-state" class="muted"></p></div><button id="new-note">+ Записать текстом</button></div>
+<form id="search-form" class="search"><input id="search" type="search" aria-label="Поиск по заметкам" placeholder="Найти мысль, человека или проект…"><button>Найти</button><button type="button" id="refresh" class="secondary">Обновить</button></form>
+<div class="columns"><aside><p id="count" class="muted"></p><div id="records"></div><button id="more" class="secondary" hidden>Загрузить ещё</button></aside>
+<article id="detail"><div class="empty">Выберите запись, чтобы прочитать конспект и расшифровку.</div></article></div></section>
+<p id="notice" role="status" aria-live="polite"></p></main>
+<dialog id="editor"><form id="edit-form"><h2 id="editor-title">Записать мысль</h2><label for="transcript">Текст</label><textarea id="transcript" rows="12" maxlength="60000" required></textarea><div class="actions"><button type="button" id="cancel" class="secondary">Отмена</button><button>Сохранить</button></div></form></dialog>
+<dialog id="delete-dialog"><h2>Удалить запись?</h2><p>Аудио, заметка и запись в базе на этом компьютере будут удалены. Копия на телефоне останется.</p><div class="actions"><button id="cancel-delete" class="secondary">Отмена</button><button id="confirm-delete" class="danger">Удалить</button></div></dialog>
+</body></html>
