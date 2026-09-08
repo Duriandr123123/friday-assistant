@@ -2,6 +2,7 @@
 const $ = id => document.getElementById(id);
 let token = '', selected = null, offset = 0, editing = null, audioUrl = null;
 const statuses = {queued:'В очереди',processing:'Обрабатываю',retry:'Повтор после ошибки',saved:'Сохранено',awaiting_ai:'Расшифровано · ожидает AI',failed:'Ошибка обработки'};
+const errors = {llm_model_missing:'В файле .env не указана модель OPENAI_LLM_MODEL.',api_key_missing:'В файле .env не заполнена строка OPENAI_API_KEY. Вставьте секретный API-ключ сразу после знака =, в той же строке, и перезапустите сервер.',provider_http_401:'OpenAI не принял API-ключ. Проверьте секретный ключ в .env.',provider_http_429:'OpenAI ограничил запросы. Проверьте доступные средства и лимиты API-аккаунта.'};
 function notice(text){$('notice').textContent=text;}
 async function api(path, options={}) {
   const response=await fetch(path,{...options,headers:{Authorization:`Bearer ${token}`,...options.headers}});
@@ -29,7 +30,7 @@ async function open(id){
     if(row.processing_mode==='mock')d.append(node('span','Тестовые данные','badge'));
     if(row.source==='e2e-test')d.append(node('span','Аудио для проверки системы','badge'));
     d.append(node('h2',row.result?.title||'Голосовая мысль'),node('p',new Date(row.captured_at).toLocaleString('ru-RU'),'muted'));
-    if(row.error)d.append(node('p',`Ошибка: ${row.error}. Исходная запись сохранена.`));
+    if(row.error)d.append(node('p',`${errors[row.error] || 'Ошибка: '+row.error}. Исходная запись сохранена.`));
     const actions=node('div',undefined,'actions');
     function action(label, fn){const b=node('button',label,'secondary');b.onclick=()=>Promise.resolve(fn()).catch(e=>notice(e.message));actions.append(b);}
     action('Обновить',()=>open(id));
