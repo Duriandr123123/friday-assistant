@@ -14,7 +14,16 @@ class LocalWhisperProvider:
         except ImportError:
             raise ProviderError("local_stt_not_installed", retryable=False)
         if self.model is None:
-            self.model = WhisperModel(self.settings.whisper_model, device=self.settings.whisper_device,
+            from faster_whisper.utils import download_model
+            from huggingface_hub.errors import LocalEntryNotFoundError
+            model_name = self.settings.whisper_model
+            if not Path(model_name).is_dir():
+                try:
+                    model_name = download_model(model_name, cache_dir=str(self.settings.data_directory / "models"),
+                                                local_files_only=True)
+                except LocalEntryNotFoundError:
+                    pass  # First use downloads the model; subsequent use is fully local.
+            self.model = WhisperModel(model_name, device=self.settings.whisper_device,
                                       compute_type=self.settings.whisper_compute_type,
                                       download_root=str(self.settings.data_directory / "models"))
         segments, info = self.model.transcribe(str(path), language=self.settings.language,

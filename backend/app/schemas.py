@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import datetime, date
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, AwareDatetime
+from pydantic import BaseModel, ConfigDict, Field, AwareDatetime, field_validator
 
 
 class StrictModel(BaseModel):
@@ -15,6 +15,19 @@ class Task(StrictModel):
     priority: Literal["low", "normal", "high"]
     project: str | None
     status: Literal["open", "done", "cancelled"]
+
+    @field_validator("deadline")
+    @classmethod
+    def iso_deadline(cls, value):
+        if value is None:
+            return value
+        if len(value) == 10:
+            date.fromisoformat(value)
+        else:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                raise ValueError("Deadline time requires timezone")
+        return value
 
 
 class MentionedDate(StrictModel):

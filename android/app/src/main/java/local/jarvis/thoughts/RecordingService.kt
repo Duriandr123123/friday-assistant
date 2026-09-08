@@ -48,7 +48,7 @@ class RecordingService : Service() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             message = "Нет разрешения на микрофон"; stopSelf(); return START_NOT_STICKY
         }
-        if (Build.VERSION.SDK_INT >= 29) startForeground(1, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        if (Build.VERSION.SDK_INT >= 30) startForeground(1, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         else startForeground(1, notification())
         active = true; keepRecording.set(true); message = "Подключаю микрофон…"
         wakeLock = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "jarvis:recording").apply {
@@ -104,7 +104,7 @@ class RecordingService : Service() {
         if (record.state != AudioRecord.STATE_INITIALIZED) { record.release(); error("microphone_init") }
         if (!bluetooth) audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
             .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }?.let { record.preferredDevice = it }
-        record.startRecording()
+        try { record.startRecording() } catch (e: Exception) { record.release(); throw e }
         return record
     }
     private fun capture() {
@@ -153,6 +153,7 @@ class RecordingService : Service() {
             }
         } catch (_: Exception) {
             partialError = true
+            if (row == null) message = "Не удалось создать файл. Проверьте свободное место."
         } finally {
             try { audio?.stop() } catch (_: Exception) { }
             audio?.release(); clearRoute()

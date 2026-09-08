@@ -27,6 +27,7 @@ async function open(id){
     if(audioUrl){URL.revokeObjectURL(audioUrl);audioUrl=null;}
     d.append(node('span',statuses[row.status]||row.status,'badge'));
     if(row.processing_mode==='mock')d.append(node('span','Тестовые данные','badge'));
+    if(row.source==='e2e-test')d.append(node('span','Аудио для проверки системы','badge'));
     d.append(node('h2',row.result?.title||'Голосовая мысль'),node('p',new Date(row.captured_at).toLocaleString('ru-RU'),'muted'));
     if(row.error)d.append(node('p',`Ошибка: ${row.error}. Исходная запись сохранена.`));
     const actions=node('div',undefined,'actions');
@@ -52,3 +53,14 @@ $('new-note').onclick=()=>{editing=null;$('editor-title').textContent='Запи�
 $('cancel').onclick=()=>$('editor').close();
 $('edit-form').onsubmit=async e=>{e.preventDefault();try{const r=await(await api(editing?`/recordings/${editing}/transcript`:'/texts',{method:editing?'PATCH':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:$('transcript').value})})).json();$('editor').close();notice('Текст сохранён. Обработка начнётся автоматически.');await load();await open(r.id);}catch(e){notice(e.message);}};
 $('cancel-delete').onclick=()=>$('delete-dialog').close();$('confirm-delete').onclick=async()=>{try{await api(`/recordings/${selected}`,{method:'DELETE'});selected=null;$('detail').replaceChildren();$('delete-dialog').close();notice('Запись удалена с компьютера');await load();}catch(e){notice(e.message);}};
+// Optional browser agent surface uses the same authenticated API and UI state.
+if(document.modelContext?.registerTool){
+  const lifecycle=new AbortController();
+  try{Promise.resolve(document.modelContext.registerTool({
+    name:'search_notes',title:'Найти заметки',description:'Найти сохранённые заметки по словам после входа в панель.',
+    inputSchema:{type:'object',properties:{query:{type:'string',maxLength:300}},required:['query'],additionalProperties:false},
+    annotations:{readOnlyHint:true,untrustedContentHint:true},
+    async execute(input){if(!token)throw Error('Сначала войдите в панель');if(!input||typeof input.query!=='string'||input.query.length>300)throw Error('Некорректный запрос');$('search').value=input.query;await load();const rows=await(await api(`/notes?q=${encodeURIComponent(input.query)}&limit=50`)).json();return rows.map(r=>({id:r.id,title:r.result?.title||'Голосовая мысль',status:r.status}));}
+  },{signal:lifecycle.signal})).catch(()=>{});}catch{}
+  window.addEventListener('pagehide',()=>lifecycle.abort(),{once:true});
+}

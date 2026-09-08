@@ -120,9 +120,10 @@ class MainActivity : Activity() {
         "uploaded" to "Обрабатывается на ПК", "saved" to "Сохранено", "awaiting_ai" to "Расшифровано · ожидает AI",
         "server_error" to "Ошибка обработки на ПК", "needs_attention" to "Нужно повторить отправку", "local_error" to "Ошибка записи")
     private fun refreshRows() {
-        state.text = RecordingService.message
         record.text = if (RecordingService.active) "Остановить запись" else "Записать мысль"
         val rows = LocalStore(this).use { it.all() }
+        state.text = if (RecordingService.active) RecordingService.message
+            else rows.firstOrNull()?.let { statuses[it.status] } ?: RecordingService.message
         val snapshot = rows.toString()
         if (snapshot == lastSnapshot) return
         lastSnapshot = snapshot; list.removeAllViews()

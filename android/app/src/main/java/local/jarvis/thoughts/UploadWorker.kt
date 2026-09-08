@@ -1,7 +1,15 @@
 package local.jarvis.thoughts
 
 import android.content.Context
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.work.*
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
@@ -62,6 +70,7 @@ class UploadWorker(context: Context, parameters: WorkerParameters) : Worker(cont
                             else -> "uploaded"
                         }
                         store.update(row.id, state, if (serverStatus == "failed") result.optString("error") else "", json)
+                        if (state == "saved" || state == "awaiting_ai") notifySaved(row.id, state)
                         if (state == "uploaded") retry = true
                     }
                 } catch (_: Exception) {
@@ -77,6 +86,16 @@ class UploadWorker(context: Context, parameters: WorkerParameters) : Worker(cont
             }
         }
         return if (retry) Result.retry() else Result.success()
+    }
+    private fun notifySaved(id: String, state: String) {
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val manager = applicationContext.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(NotificationChannel("saved", "Сохранённые мысли", NotificationManager.IMPORTANCE_DEFAULT))
+        val open = PendingIntent.getActivity(applicationContext, 0, Intent(applicationContext, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        manager.notify(id.hashCode(), NotificationCompat.Builder(applicationContext, "saved").setSmallIcon(R.drawable.ic_mic)
+            .setContentTitle(if (state == "saved") "Мысль сохранена" else "Расшифровка сохранена")
+            .setContentText(if (state == "saved") "Откройте конспект и задачи" else "AI-конспект ожидает подключения ключа")
+            .setContentIntent(open).setAutoCancel(true).build())
     }
     companion object {
         fun enqueue(context: Context, manual: Boolean = false) {

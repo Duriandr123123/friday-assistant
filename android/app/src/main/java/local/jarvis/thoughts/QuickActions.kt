@@ -1,6 +1,7 @@
 package local.jarvis.thoughts
 
 import android.app.PendingIntent
+import android.annotation.SuppressLint
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
@@ -13,6 +14,8 @@ fun recordIntent(context: Context) = Intent(context, MainActivity::class.java).s
     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
 
 class RecordTile : TileService() {
+    // PendingIntent overload only exists on API 34+. The old call is confined to older OSes.
+    @SuppressLint("StartActivityAndCollapseDeprecated")
     override fun onClick() {
         super.onClick()
         val intent = recordIntent(this)

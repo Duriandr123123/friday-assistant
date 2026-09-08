@@ -4,6 +4,7 @@ import sys
 import threading
 from pathlib import Path
 import uvicorn
+from filelock import FileLock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -13,6 +14,11 @@ from backend.app.core.config import Settings
 def main():
     settings = Settings()
     settings.prepare()
+    with FileLock(str(settings.data_directory / "launcher.lock"), timeout=0):
+        run(settings)
+
+
+def run(settings):
     stop = settings.data_directory / "stop.request"
     pid = settings.data_directory / "server.pid"
     stop.unlink(missing_ok=True)

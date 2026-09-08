@@ -17,7 +17,7 @@ class MarkdownNotesProvider:
         # Stable UUID path survives title edits and retries without duplicate notes.
         path = self.settings.notes_directory / dt.strftime("%Y/%m/%d") / f"{dt:%Y-%m-%d_%H-%M}_{recording.id}.md"
         lines = [f"# {escape(content.title)}", "", f"Записано: {dt.isoformat()}",
-                 f"ID: {recording.id}", f"Режим обработки: {recording.processing_mode}",
+                 f"ID: {recording.id}", f"Источник: {escape(recording.source)}", f"Режим обработки: {recording.processing_mode}",
                  f"Категория: {content.category} · Приоритет: {content.priority}", "", "## Кратко", escape(content.summary)]
         sections = [("Главное", content.important_points), ("Люди", content.people), ("Компании", content.companies),
                     ("Проекты", content.projects), ("Идеи", content.ideas), ("Решения", content.decisions),
