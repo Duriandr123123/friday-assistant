@@ -14,3 +14,4 @@ local.properties
 *.jks
 *.keystore
 .idea/
+android/app/src/main/assets/wake-model.zip

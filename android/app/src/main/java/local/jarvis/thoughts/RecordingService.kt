@@ -15,6 +15,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.sqrt
+import org.vosk.Model
+import org.vosk.Recognizer
+import org.json.JSONObject
 
 class RecordingService : Service() {
     private val keepRecording = AtomicBoolean(false)
@@ -22,10 +25,18 @@ class RecordingService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private lateinit var audioManager: AudioManager
     private var originalMode = AudioManager.MODE_NORMAL
+    private val manualRecording = AtomicBoolean(false)
+    private var model: Model? = null
+    private var voiceTriggered = false
     companion object {
         @Volatile var active = false
+        @Volatile var running = false
+        @Volatile var backgroundEnabled = false
+        @Volatile var backgroundError: String? = null
         @Volatile var message = "Готов"
         const val STOP = "local.jarvis.STOP"
+        const val ENABLE_BACKGROUND = "local.jarvis.ENABLE_BACKGROUND"
+        const val DISABLE_BACKGROUND = "local.jarvis.DISABLE_BACKGROUND"
     }
     override fun onBind(intent: Intent?) = null
     override fun onCreate() {
@@ -38,24 +49,100 @@ class RecordingService : Service() {
         val stop = PendingIntent.getService(this, 0, Intent(this, RecordingService::class.java).setAction(STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        return NotificationCompat.Builder(this, "recording").setSmallIcon(R.drawable.ic_mic)
-            .setContentTitle("Джарвис слушает").setContentText("Нажмите «Остановить», когда закончите")
-            .setOngoing(true).setContentIntent(open).addAction(R.drawable.ic_mic, "Остановить", stop).build()
+        val disable = PendingIntent.getService(this, 3, Intent(this, RecordingService::class.java).setAction(DISABLE_BACKGROUND),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val builder = NotificationCompat.Builder(this, "recording").setSmallIcon(R.drawable.ic_mic)
+            .setContentTitle(if (active) "Записываю мысль" else "Ожидаю: Сюзанна")
+            .setContentText(if (active) "Нажмите «Остановить запись», когда закончите" else "Фоновый микрофон включён · распознавание на телефоне")
+            .setOngoing(true).setContentIntent(open)
+        if (active) builder.addAction(R.drawable.ic_mic, "Остановить запись", stop)
+        if (backgroundEnabled) builder.addAction(R.drawable.ic_mic, "Выключить фон", disable)
+        return builder.build()
     }
+    private fun updateNotification() { getSystemService(NotificationManager::class.java).notify(1, notification()) }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == STOP) { keepRecording.set(false); return START_NOT_STICKY }
-        if (active) return START_NOT_STICKY
+        if (intent?.action == DISABLE_BACKGROUND) {
+            backgroundEnabled = false; manualRecording.set(false); keepRecording.set(false)
+            message = "Фоновое прослушивание выключено"
+            if (!running) stopSelf()
+            return START_NOT_STICKY
+        }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             message = "Нет разрешения на микрофон"; stopSelf(); return START_NOT_STICKY
         }
+        if (intent?.action == ENABLE_BACKGROUND) { backgroundEnabled = true; backgroundError = null }
+        else if (!active) manualRecording.set(true)
+        if (running) { updateNotification(); return START_NOT_STICKY }
+        running = true
         if (Build.VERSION.SDK_INT >= 30) startForeground(1, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         else startForeground(1, notification())
-        active = true; keepRecording.set(true); message = "Подключаю микрофон…"
+        message = "Подключаю микрофон…"
         wakeLock = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "jarvis:recording").apply {
-            acquire(11 * 60 * 1000L)
+            acquire(60 * 60 * 1000L)
         }
-        thread = Thread({ capture() }, "jarvis-audio").also { it.start() }
+        thread = Thread({ session() }, "jarvis-audio").also { it.start() }
         return START_NOT_STICKY
+    }
+    private fun session() {
+        try {
+            while (backgroundEnabled || manualRecording.get()) {
+                voiceTriggered = !manualRecording.get()
+                if (voiceTriggered && !waitForWakeWord()) continue
+                if (!backgroundEnabled && !manualRecording.get()) break
+                manualRecording.set(false)
+                active = true; keepRecording.set(true); updateNotification()
+                capture()
+                active = false
+                if (backgroundEnabled) updateNotification()
+            }
+        } catch (_: Exception) {
+            message = if (backgroundEnabled) "Фон остановлен: не удалось открыть модель или микрофон. Включите режим снова." else "Фоновое прослушивание выключено"
+            if (backgroundEnabled) backgroundError = message
+        } finally {
+            model?.close(); model = null
+            backgroundEnabled = false; active = false; running = false; keepRecording.set(false)
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+            stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
+        }
+    }
+    private fun renewWakeLock() {
+        if (wakeLock?.isHeld == false) wakeLock?.acquire(60 * 60 * 1000L)
+    }
+    private fun waitForWakeWord(): Boolean {
+        if (model == null) {
+            message = "Готовлю распознавание слова «Сюзанна»…"
+            model = WakeModel.load(this) { !backgroundEnabled }
+        }
+        if (!backgroundEnabled || manualRecording.get()) return false
+        // Full vocabulary avoids forcing every unrelated sound into the one-word grammar.
+        Recognizer(model, Wav.RATE.toFloat()).use { recognizer ->
+            var mic: AudioRecord? = null
+            try {
+                originalMode = audioManager.mode
+                mic = recorder(false) // Idle listening uses phone mic; it does not hold Bluetooth SCO open.
+                message = "Работаю в фоне · скажите «Сюзанна»"
+                updateNotification()
+                val samples = ShortArray(1600)
+                val gate = WakeWordGate()
+                var resetAt = SystemClock.elapsedRealtime()
+                while (backgroundEnabled && !manualRecording.get()) {
+                    renewWakeLock()
+                    val count = mic.read(samples, 0, samples.size, AudioRecord.READ_BLOCKING)
+                    if (count <= 0) error("wake_microphone_read")
+                    val final = recognizer.acceptWaveForm(samples, count)
+                    val result = JSONObject(if (final) recognizer.result else recognizer.partialResult)
+                    if (gate.accept(result.optString(if (final) "text" else "partial"), final)) return true
+                    if (SystemClock.elapsedRealtime() - resetAt > 30000) {
+                        recognizer.reset(); resetAt = SystemClock.elapsedRealtime()
+                    }
+                }
+                return false
+            } finally {
+                try { mic?.stop() } catch (_: Exception) { }
+                mic?.release()
+            }
+        }
     }
     @Suppress("MissingPermission", "DEPRECATION")
     private fun selectBluetooth(): Boolean {
@@ -122,6 +209,11 @@ class RecordingService : Service() {
                     bluetooth = false; clearRoute(); recorder(false)
                 }
                 message = "Слушаю · " + if (bluetooth) "гарнитура" else "микрофон телефона"
+                if (voiceTriggered) {
+                    val tone = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 70)
+                    tone.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
+                    Handler(Looper.getMainLooper()).postDelayed({ tone.release() }, 200)
+                }
                 val samples = ShortArray(1600)
                 var total = 0
                 var lastSync = SystemClock.elapsedRealtime()
@@ -129,8 +221,9 @@ class RecordingService : Service() {
                 var heardSpeech = false
                 var recovered = false
                 val started = lastSync
-                val silence = SecureSettings(this).silenceSeconds
+                val silence = if (voiceTriggered) 5 else SecureSettings(this).silenceSeconds
                 while (keepRecording.get() && total < Wav.RATE * 2 * 600) {
+                    renewWakeLock()
                     val count = audio!!.read(samples, 0, samples.size, AudioRecord.READ_BLOCKING)
                     if (count <= 0) {
                         if (!recovered) {
@@ -148,6 +241,7 @@ class RecordingService : Service() {
                     if (sqrt(square / count) > 500) { lastSpeech = now; heardSpeech = true }
                     if (now - lastSync >= 1000) { output.fd.sync(); lastSync = now }
                     if (silence > 0 && heardSpeech && now - lastSpeech >= silence * 1000L && now - started > 5000) break
+                    if (voiceTriggered && !heardSpeech && now - started >= 15000) break
                 }
                 output.seek(0); output.write(Wav.header(total)); output.fd.sync()
             }
@@ -171,10 +265,8 @@ class RecordingService : Service() {
                     }
                 } catch (_: Exception) { message = "Ошибка сохранения; проверьте свободное место" }
             }
-            store.close(); active = false; keepRecording.set(false)
-            if (wakeLock?.isHeld == true) wakeLock?.release()
-            stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
+            store.close(); keepRecording.set(false)
         }
     }
-    override fun onDestroy() { keepRecording.set(false); super.onDestroy() }
+    override fun onDestroy() { backgroundEnabled = false; manualRecording.set(false); keepRecording.set(false); super.onDestroy() }
 }

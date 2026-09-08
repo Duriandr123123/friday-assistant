@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
+& (Join-Path $PSScriptRoot 'prepare-wake-model.ps1')
 # Some Android/JVM tools on Windows misread Cyrillic paths. Use an isolated ASCII build copy.
 $taskBuildRoot = Join-Path $env:LOCALAPPDATA 'JarvisThoughtsBuild'
 $taskStage = Join-Path $taskBuildRoot 'android'

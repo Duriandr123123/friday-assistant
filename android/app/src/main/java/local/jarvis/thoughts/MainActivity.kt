@@ -21,6 +21,7 @@ class MainActivity : Activity() {
     private lateinit var state: TextView
     private lateinit var list: LinearLayout
     private lateinit var record: Button
+    private lateinit var backgroundSwitch: Switch
     private val handler = Handler(Looper.getMainLooper())
     private var player: MediaPlayer? = null
     private var lastSnapshot = ""
@@ -54,6 +55,16 @@ class MainActivity : Activity() {
             else beginRecording()
         }.apply { minHeight = dp(100); textSize = 22f; setTextColor(Color.BLACK); setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(51, 216, 197))) }
         root.addView(record)
+        backgroundSwitch = Switch(this).apply {
+            text = "Работать в фоне"; textSize = 18f
+            setPadding(0, dp(18), 0, dp(12))
+            setOnClickListener {
+                if (isChecked) enableBackground()
+                else startService(Intent(this@MainActivity, RecordingService::class.java).setAction(RecordingService.DISABLE_BACKGROUND))
+            }
+        }
+        root.addView(backgroundSwitch)
+        root.addView(text("Скажите «Сюзанна», дождитесь сигнала и говорите. Через 5 секунд тишины запись завершится. Фоновый режим использует микрофон телефона и расходует батарею.", 14f))
         root.addView(button("Подключение и микрофон") { settingsDialog() })
         root.addView(button("Отправить / обновить") { UploadWorker.enqueue(this, manual = true); toast("Очередь запущена") })
         root.addView(text("Записи на телефоне", 22f))
@@ -80,10 +91,24 @@ class MainActivity : Activity() {
         try { ContextCompat.startForegroundService(this, Intent(this, RecordingService::class.java)) }
         catch (_: Exception) { toast("Не удалось начать запись. Откройте приложение и повторите.") }
     }
+    private fun enableBackground() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            backgroundSwitch.isChecked = false
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 11); return
+        }
+        try {
+            ContextCompat.startForegroundService(this, Intent(this, RecordingService::class.java).setAction(RecordingService.ENABLE_BACKGROUND))
+        } catch (_: Exception) {
+            backgroundSwitch.isChecked = false
+            toast("Не удалось включить фон. Откройте приложение и повторите.")
+        }
+    }
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, results)
         if (requestCode == 10 && results.firstOrNull() == PackageManager.PERMISSION_GRANTED) beginRecording()
         else if (requestCode == 10) toast("Для записи разрешите микрофон в настройках приложения")
+        if (requestCode == 11 && results.firstOrNull() == PackageManager.PERMISSION_GRANTED) enableBackground()
+        else if (requestCode == 11) toast("Без разрешения на микрофон фоновое прослушивание выключено")
     }
     private fun settingsDialog() {
         val settings = SecureSettings(this)
@@ -120,9 +145,10 @@ class MainActivity : Activity() {
         "uploaded" to "Обрабатывается на ПК", "saved" to "Сохранено", "awaiting_ai" to "Расшифровано · ожидает AI",
         "server_error" to "Ошибка обработки на ПК", "needs_attention" to "Нужно повторить отправку", "local_error" to "Ошибка записи")
     private fun refreshRows() {
+        backgroundSwitch.isChecked = RecordingService.backgroundEnabled
         record.text = if (RecordingService.active) "Остановить запись" else "Записать мысль"
         val rows = LocalStore(this).use { it.all() }
-        state.text = if (RecordingService.active) RecordingService.message
+        state.text = RecordingService.backgroundError ?: if (RecordingService.running) RecordingService.message
             else rows.firstOrNull()?.let { statuses[it.status] } ?: RecordingService.message
         val snapshot = rows.toString()
         if (snapshot == lastSnapshot) return

@@ -1,0 +1,11 @@
+Vosk API 0.3.75, Alpha Cephei, Apache License 2.0.
+https://github.com/alphacep/vosk-api
+
+Russian model vosk-model-small-ru-0.22, Alpha Cephei, Apache License 2.0.
+https://alphacephei.com/vosk/models
+Original archive included unchanged as wake-model.zip.
+
+Java Native Access 5.18.1, Apache License 2.0 option.
+https://github.com/java-native-access/jna
+
+See APACHE-2.0.txt for license terms.
