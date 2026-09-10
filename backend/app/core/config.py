@@ -5,7 +5,8 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ROOT = Path(__file__).resolve().parents[3]
+import os
+ROOT = Path(os.environ.get("FRIDAY_HOME", str(Path(__file__).resolve().parents[3])))
 
 
 class Settings(BaseSettings):

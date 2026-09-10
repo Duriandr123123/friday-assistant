@@ -37,8 +37,10 @@ class CloudSTTProvider:
 
     def transcribe(self, path: Path) -> str:
         from .llm import request_json
+        import wave
+        with wave.open(str(path),'rb') as wav: duration=wav.getnframes()/wav.getframerate()
         with path.open("rb") as audio:
-            data = request_json(self.settings, "audio/transcriptions", files={"file": (path.name, audio)},
+            data = request_json(self.settings, "audio/transcriptions", _usage_meta={"audio_seconds":duration}, files={"file": (path.name, audio)},
                 data={"model": self.settings.openai_stt_model, "language": self.settings.language,
                       "prompt": "Roll.Mart, Kaspi, Meta Ads, Codex, WhatsApp, тенге, роллшторы."})
         return data["text"]

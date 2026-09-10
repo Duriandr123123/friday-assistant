@@ -38,6 +38,11 @@ def create_app(settings=None, *, worker=True, stt=None, llm=None, notes=None):
 
     app = FastAPI(title="Джарвис — заметки", version="0.1.0", lifespan=lifespan)
     app.include_router(router)
+    import threading
+    from backend.app.onboarding import router as pairing_router
+    app.state.pair_code=None
+    app.state.pair_lock=threading.Lock()
+    app.include_router(pairing_router)
 
     @app.middleware("http")
     async def security_headers(request, call_next):

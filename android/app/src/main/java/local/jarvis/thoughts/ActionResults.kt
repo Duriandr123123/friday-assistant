@@ -29,6 +29,9 @@ object ActionResults {
                         val label = payload.getString("description") + if (!payload.isNull("amount_minor")) " — ${payload.getLong("amount_minor")/100.0} ₸" else ""
                         val state = mapOf("applied" to "Выполнено", "cancelled" to "Отменено", "pending" to "В очереди", "waiting" to "Ожидает", "needs_input" to "Нужно уточнение")[row.getString("status")] ?: row.getString("status")
                         box.addView(TextView(activity).apply { text=label+"\n"+state+if (!row.isNull("error")) "\n"+row.getString("error") else ""; textSize=17f })
+                        if (row.getString("status") in listOf("needs_input","waiting","pending")) box.addView(Button(activity).apply {
+                            text="Уточнить";setOnClickListener { ClarifyAction.show(activity,row,recordingId) }
+                        })
                         if (row.getString("status") != "cancelled") box.addView(Button(activity).apply {
                             text="Отменить действие"
                             setOnClickListener {

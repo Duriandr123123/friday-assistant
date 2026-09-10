@@ -322,3 +322,29 @@ def calendar_connect(request: Request):
     try: url = request.app.state.processor.calendar.begin()
     except Exception: raise HTTPException(409,'Сначала загрузите OAuth JSON Google Desktop app или дождитесь окончания текущего входа')
     return {'url':url}
+
+
+@router.get('/usage')
+def usage_status(request:Request):
+    from backend.app.usage import summary
+    return summary(request.app.state.settings)
+
+@router.put('/usage/prices')
+def usage_prices(request:Request,payload:dict):
+    from backend.app.onboarding import local
+    from backend.app.storage import atomic_write
+    import math
+    local(request)
+    model=payload.get('model')
+    if not isinstance(model,str) or not 1<=len(model)<=100:raise HTTPException(422,'Укажите модель')
+    rates={}
+    for key in ('input','output','cached','audio_minute'):
+        value=payload.get(key)
+        if type(value) not in (float,int) or not math.isfinite(value) or not 0<=value<=10000:raise HTTPException(422,'Тарифы должны быть неотрицательными числами')
+        rates[key]=value
+    path=request.app.state.settings.data_directory/'api-prices.json'
+    with request.app.state.processor.mutex:
+        prices=json.loads(path.read_text()) if path.exists() else {}
+        prices[model]=rates
+        atomic_write(path,json.dumps(prices).encode())
+    return usage_status(request)

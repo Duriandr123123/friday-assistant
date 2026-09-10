@@ -73,12 +73,22 @@ class MainActivity : Activity() {
                 else toast("Новые записи остаются на телефоне. Начатая отправка может завершиться.")
             }
         })
+        root.addView(button("Сканировать QR подключения") {
+            com.google.zxing.integration.android.IntentIntegrator(this).setDesiredBarcodeFormats(com.google.zxing.integration.android.IntentIntegrator.QR_CODE)
+                .setPrompt("QR из панели Джарвиса на компьютере").setBeepEnabled(false).initiateScan()
+        })
+        root.addView(button("Проверить связь") { Pairing.check(this) })
         root.addView(button("Подключение и микрофон") { settingsDialog() })
         root.addView(button("Отправить / обновить") { UploadWorker.enqueue(this, manual = true); toast("Очередь запущена") })
         root.addView(text("Записи на телефоне", 22f))
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }; root.addView(list)
         scroll.addView(root); setContentView(scroll)
         if (intent.action == "local.jarvis.RECORD") { pendingRecord = true; intent.action = null }
+    }
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        val scan = com.google.zxing.integration.android.IntentIntegrator.parseActivityResult(requestCode,resultCode,data)
+        if (scan != null) { if (scan.contents != null) Pairing.connect(this,scan.contents); return }
+        super.onActivityResult(requestCode,resultCode,data)
     }
     override fun onResume() {
         super.onResume(); handler.post(refresh)

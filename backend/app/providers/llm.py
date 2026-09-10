@@ -40,6 +40,9 @@ due_date только для долгов, формат YYYY-MM-DD. Фраза '
 
 
 def request_json(settings, endpoint, **kwargs):
+    from backend.app.usage import record
+    meta=kwargs.pop('_usage_meta',{})
+    model=(kwargs.get('json') or kwargs.get('data') or {}).get('model','unknown')
     key = settings.openai_api_key.get_secret_value()
     if not key:
         raise ProviderError("api_key_missing", retryable=False)
@@ -48,10 +51,14 @@ def request_json(settings, endpoint, **kwargs):
             response = client.post(settings.openai_base_url.rstrip("/") + "/" + endpoint,
                 headers={"Authorization": f"Bearer {key}"}, **kwargs)
         if response.status_code >= 400:
+            record(settings,model,endpoint,'http_error')
             raise ProviderError(f"provider_http_{response.status_code}",
                                 retryable=response.status_code in (408, 429) or response.status_code >= 500)
-        return response.json()
+        result=response.json()
+        record(settings,model,endpoint,'completed' if result.get('status','completed')=='completed' else 'incomplete',{**meta,**(result.get('usage') or {})})
+        return result
     except (httpx.TransportError, json.JSONDecodeError):
+        record(settings,model,endpoint,'unconfirmed')
         raise ProviderError("provider_connection_or_json_error") from None
 
 
