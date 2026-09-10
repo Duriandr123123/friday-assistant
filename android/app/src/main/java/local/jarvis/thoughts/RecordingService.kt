@@ -52,7 +52,7 @@ class RecordingService : Service() {
         val disable = PendingIntent.getService(this, 3, Intent(this, RecordingService::class.java).setAction(DISABLE_BACKGROUND),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val builder = NotificationCompat.Builder(this, "recording").setSmallIcon(R.drawable.ic_mic)
-            .setContentTitle(if (active) "Записываю мысль" else "Ожидаю: Сюзанна")
+            .setContentTitle(if (active) "Записываю мысль" else "Ожидаю: Пятница")
             .setContentText(if (active) "Нажмите «Остановить запись», когда закончите" else "Фоновый микрофон включён · распознавание на телефоне")
             .setOngoing(true).setContentIntent(open)
         if (active) builder.addAction(R.drawable.ic_mic, "Остановить запись", stop)
@@ -111,7 +111,7 @@ class RecordingService : Service() {
     }
     private fun waitForWakeWord(): Boolean {
         if (model == null) {
-            message = "Готовлю распознавание слова «Сюзанна»…"
+            message = "Готовлю распознавание слова «Пятница»…"
             model = WakeModel.load(this) { !backgroundEnabled }
         }
         if (!backgroundEnabled || manualRecording.get()) return false
@@ -121,8 +121,9 @@ class RecordingService : Service() {
             try {
                 originalMode = audioManager.mode
                 mic = recorder(false) // Idle listening uses phone mic; it does not hold Bluetooth SCO open.
-                message = "Работаю в фоне · скажите «Сюзанна»"
+                message = "Работаю в фоне · скажите «Пятница»"
                 updateNotification()
+                vibrateRecord()
                 val samples = ShortArray(1600)
                 val gate = WakeWordGate()
                 var resetAt = SystemClock.elapsedRealtime()
@@ -214,6 +215,7 @@ class RecordingService : Service() {
                     tone.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
                     Handler(Looper.getMainLooper()).postDelayed({ tone.release() }, 200)
                 }
+                vibrateRecord()
                 val samples = ShortArray(1600)
                 var total = 0
                 var lastSync = SystemClock.elapsedRealtime()
@@ -221,7 +223,7 @@ class RecordingService : Service() {
                 var heardSpeech = false
                 var recovered = false
                 val started = lastSync
-                val silence = if (voiceTriggered) 5 else SecureSettings(this).silenceSeconds
+                val silence = SecureSettings(this).silenceSeconds
                 while (keepRecording.get() && total < Wav.RATE * 2 * 600) {
                     renewWakeLock()
                     val count = audio!!.read(samples, 0, samples.size, AudioRecord.READ_BLOCKING)
@@ -240,7 +242,7 @@ class RecordingService : Service() {
                     val now = SystemClock.elapsedRealtime()
                     if (sqrt(square / count) > 500) { lastSpeech = now; heardSpeech = true }
                     if (now - lastSync >= 1000) { output.fd.sync(); lastSync = now }
-                    if (silence > 0 && heardSpeech && now - lastSpeech >= silence * 1000L && now - started > 5000) break
+                    if (silence > 0 && heardSpeech && now - lastSpeech >= silence * 1000L) break
                     if (voiceTriggered && !heardSpeech && now - started >= 15000) break
                 }
                 output.seek(0); output.write(Wav.header(total)); output.fd.sync()
@@ -265,8 +267,12 @@ class RecordingService : Service() {
                     }
                 } catch (_: Exception) { message = "Ошибка сохранения; проверьте свободное место" }
             }
+            vibrateRecord()
             store.close(); keepRecording.set(false)
         }
+    }
+    private fun vibrateRecord() {
+        try { (getSystemService(VIBRATOR_SERVICE) as android.os.Vibrator).vibrate(android.os.VibrationEffect.createOneShot(90, android.os.VibrationEffect.DEFAULT_AMPLITUDE)) } catch (_: Exception) { }
     }
     override fun onDestroy() { backgroundEnabled = false; manualRecording.set(false); keepRecording.set(false); super.onDestroy() }
 }

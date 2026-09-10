@@ -5,7 +5,15 @@
 <main><section id="login"><h1>Ваши мысли, в одном месте.</h1><p>Введите токен из файла <b>data/connection.txt</b> в папке проекта.</p>
 <form id="login-form"><label for="token">Токен подключения</label><input id="token" type="password" autocomplete="off" required><button>Открыть заметки</button></form></section>
 <section id="workspace" hidden><div class="heading"><div><h1>Мои мысли</h1><p id="provider-state" class="muted"></p></div><button id="new-note">+ Записать текстом</button></div>
+<div class="actions"><button id="import-audio" class="secondary">Импорт с диктофона</button><input id="audio-files" type="file" accept=".wav,.mp3,.m4a,.ogg,.flac" multiple hidden></div><p class="muted">Выберите записи на диктофоне или компьютере. До 60 минут и 256 МБ на файл. Исходники останутся на устройстве.</p>
 <form id="search-form" class="search"><input id="search" type="search" aria-label="Поиск по заметкам" placeholder="Найти мысль, человека или проект…"><button>Найти</button><button type="button" id="refresh" class="secondary">Обновить</button></form>
+<details id="finance-panel"><summary>Финансы и поручения</summary>
+<p id="budget-summary"></p><form id="budget-form" class="actions"><label>Начальный общий бюджет, ₸ <input id="budget-value" type="number" min="0" max="1000000000" step="0.01" required></label><button>Сохранить начальный бюджет</button></form>
+<p class="muted">Это исходная сумма, до всех внесённых операций. Учёт ведётся в тенге, без банковских переводов.</p>
+<div class="actions"><button id="actions-refresh" type="button" class="secondary">Обновить поручения</button><button id="actions-retry" type="button" class="secondary">Повторить ожидающие</button></div>
+<p id="calendar-state"></p><div class="actions"><button id="google-json-button" type="button" class="secondary">Загрузить OAuth JSON Google</button><input id="google-json" type="file" accept=".json" hidden><button id="google-connect" type="button" class="secondary">Подключить Google Календарь</button></div>
+<p class="muted">Подключение выполняется на ПК. Нужен OAuth-клиент Desktop app с включённым Calendar API. Встречи создаются в основном календаре: по умолчанию 60 минут, напоминание за 30 минут. Другие значения можно назвать в поручении.</p>
+<div id="debt-list"></div><div id="action-list"></div></details>
 <div class="columns"><aside><p id="count" class="muted"></p><div id="records"></div><button id="more" class="secondary" hidden>Загрузить ещё</button></aside>
 <article id="detail"><div class="empty">Выберите запись, чтобы прочитать конспект и расшифровку.</div></article></div></section>
 <p id="notice" role="status" aria-live="polite"></p></main>

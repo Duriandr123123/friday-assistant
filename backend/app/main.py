@@ -42,7 +42,7 @@ def create_app(settings=None, *, worker=True, stt=None, llm=None, notes=None):
     @app.middleware("http")
     async def security_headers(request, call_next):
         # WAV uploads must declare their size, so multipart parsing cannot spool an unbounded body.
-        maximum = settings.max_audio_mb * 1024 * 1024 + 65536
+        maximum = (256 if request.url.path == '/imports/audio' else settings.max_audio_mb) * 1024 * 1024 + 65536
         length = request.headers.get("content-length", "0")
         if request.method in ("POST", "PATCH") and "content-length" not in request.headers:
             return JSONResponse({"detail": "Требуется Content-Length"}, status_code=411)

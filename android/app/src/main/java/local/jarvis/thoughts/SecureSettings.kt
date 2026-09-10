@@ -17,8 +17,11 @@ class SecureSettings(context: Context) {
         get() = prefs.getString("server", "") ?: ""
         set(value) { prefs.edit().putString("server", value.trim().trimEnd('/')).commit() }
     var silenceSeconds: Int
-        get() = prefs.getInt("silence", 0)
-        set(value) { prefs.edit().putInt("silence", value).commit() }
+        get() = prefs.getInt("silence_v2", 2).coerceIn(1, 10)
+        set(value) { prefs.edit().putInt("silence_v2", value.coerceIn(1, 10)).commit() }
+    var autoSend: Boolean
+        get() = prefs.getBoolean("auto_send", true)
+        set(value) { prefs.edit().putBoolean("auto_send", value).commit() }
     var bluetooth: Boolean
         get() = prefs.getBoolean("bluetooth", true)
         set(value) { prefs.edit().putBoolean("bluetooth", value).commit() }

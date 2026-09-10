@@ -35,7 +35,16 @@ class LocalStore(context: Context) : SQLiteOpenHelper(context, "recordings.db", 
     fun all(): List<LocalRecording> = readableDatabase.rawQuery("SELECT * FROM recordings ORDER BY captured_at DESC", null).use { c ->
         buildList { while (c.moveToNext()) add(LocalRecording(c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4), c.getString(5))) }
     }
+    fun claim(id: String): Boolean = writableDatabase.update("recordings", ContentValues().apply { put("status", "sending") },
+        "id=? AND status IN ('queued','retry')", arrayOf(id)) == 1
+    fun deleteUnsent(id: String): Boolean {
+        val row = all().firstOrNull { it.id == id } ?: return false
+        val deleted = writableDatabase.delete("recordings", "id=? AND status IN ('queued','local_error') AND server_json=''", arrayOf(id)) == 1
+        if (deleted) File(row.path).delete()
+        return deleted
+    }
     fun recover() {
+        writableDatabase.execSQL("UPDATE recordings SET status='retry' WHERE status='sending'")
         all().filter { it.status == "recording" }.forEach { row ->
             val file = File(row.path)
             if (file.exists() && file.length() > 44 + 3200) {

@@ -15,3 +15,9 @@ local.properties
 *.keystore
 .idea/
 android/app/src/main/assets/wake-model.zip
+
+# Local account credentials and personal operation notes
+client_secret*.json
+google-client.json
+google-token.json
+PROGRESS.md

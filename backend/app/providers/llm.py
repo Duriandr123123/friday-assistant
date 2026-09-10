@@ -10,12 +10,32 @@ SYSTEM_PROMPT = """Ты структурируешь личные голосов
 'наверное' и отрицания во всех соответствующих полях. Идея не равна задаче.
 Исправляй только очевидные ошибки распознавания. При сомнении сохрани формулировку
 и добавь uncertainties. Не связывай роллшторы с Roll.Mart без прямого упоминания.
+В people включай только конкретных людей, явно названных в контексте общения или действий.
+Ассистенты, программы, общие роли вроде «партнёры», отдельные непонятные слова и титры не являются людьми пользователя.
+При сомнении people=[]; сохрани сомнение в uncertainties.
 Для каждой задачи evidence — точная непрерывная цитата входного текста.
 deadline_evidence — точная цитата со сроком, или null. Не назначай срок всем задачам,
 если он сказан только для одной. deadline — ISO 8601 дата или дата-время с часовым поясом;
 при неоднозначности null. Относительные даты считай от captured_at, не от времени обработки.
 Для dates evidence тоже точная цитата. Не добавляй напоминания в сторонние системы.
 confidence означает твою субъективную уверенность, это не статистическая гарантия.
+В actions классифицируй только реальные личные операции и прямые поручения пользователя:
+expense — совершённая трата или просьба учесть расход; income — фактическое поступление;
+debt_open — долг; debt_payment — частичное или полное погашение; calendar — явное поручение
+создать встречу. Планы, примеры, цитаты других людей, отрицания и гипотезы не являются действиями.
+evidence каждого действия — точная цитата. Не выполняй действия сам и не заявляй об их выполнении.
+Суммы только KZT, amount_minor в тиынах: 3000 тенге = 300000. Неизвестные поля null.
+При другой валюте или неоднозначности укажи clarification и не угадывай сумму.
+Для долгов direction: i_owe = я должен, owed_to_me = мне должны. cash_moved=true только при
+явной передаче денег: 'дал в долг' или 'вернул'. 'Я должен' фиксирует долг без движения денег.
+Не выделяй одновременно расход/доход и долг для одной передачи денег.
+Для calendar нужны однозначные дата и время, относительные даты от captured_at.
+Для calendar due_date=null, дату и время помещай только в starts_at с часовым поясом.
+due_date только для долгов, формат YYYY-MM-DD. Фраза 'Возможно завтра потрачу 3000'
+даёт actions=[], а не действие с уточнением: это просто план, не поручение.
+Если нет времени, укажи clarification. duration_minutes и reminder_minutes null означают
+настройки приложения. Никогда не выдумывай начальный бюджет. При нескольких названных бюджетах
+укажи clarification: приложение сейчас ведёт один общий бюджет.
 """
 
 
@@ -48,6 +68,9 @@ def validate_content(payload, text):
     for date in content.dates:
         if not date.evidence or date.evidence not in text:
             raise ProviderError("unsupported_date_evidence")
+    for action in content.actions:
+        if action.evidence not in text:
+            raise ProviderError('unsupported_action_evidence')
     return content
 
 
@@ -58,12 +81,14 @@ class OpenAILLMProvider:
     def process(self, text, captured_at, timezone):
         if not self.settings.openai_llm_model:
             raise ProviderError("llm_model_missing", retryable=False)
+        schema = NoteContent.model_json_schema()
+        schema['required'] = list(schema['properties'])
         result = request_json(self.settings, "responses", json={
             "model": self.settings.openai_llm_model, "store": False,
             "instructions": SYSTEM_PROMPT,
             "input": json.dumps({"captured_at": captured_at, "timezone": timezone, "transcript": text}, ensure_ascii=False),
             "text": {"format": {"type": "json_schema", "name": "note_content", "strict": True,
-                                  "schema": NoteContent.model_json_schema()}}})
+                                  "schema": schema}}})
         if result.get("status") != "completed":
             raise ProviderError("ai_response_incomplete")
         output = "".join(part["text"] for item in result.get("output", [])

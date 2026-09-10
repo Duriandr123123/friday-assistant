@@ -32,6 +32,8 @@ class UploadWorker(context: Context, parameters: WorkerParameters) : Worker(cont
                 if (isStopped) return Result.retry()
                 try {
                     val upload = row.status != "uploaded"
+                    if (upload && !settings.autoSend && !inputData.getBoolean("manual", false)) continue
+                    if (upload && !store.claim(row.id)) continue
                     val builder = Request.Builder().header("Authorization", "Bearer ${settings.token()}")
                     if (upload) {
                         val file = File(row.path)
@@ -45,7 +47,7 @@ class UploadWorker(context: Context, parameters: WorkerParameters) : Worker(cont
                     client.newCall(builder.build()).execute().use { response ->
                         if (!response.isSuccessful) {
                             val temporary = response.code == 408 || response.code == 429 || response.code >= 500
-                            store.update(row.id, if (temporary) row.status else "needs_attention", "Сервер: ${response.code}")
+                            store.update(row.id, if (temporary) (if (upload) "retry" else "uploaded") else "needs_attention", "Сервер: ${response.code}")
                             retry = retry || temporary
                             return@use
                         }
@@ -64,7 +66,7 @@ class UploadWorker(context: Context, parameters: WorkerParameters) : Worker(cont
                         }
                         val serverStatus = result.getString("status")
                         val state = when (serverStatus) {
-                            "saved" -> "saved"
+                            "saved" -> if (upload) "uploaded" else "saved"
                             "awaiting_ai" -> "awaiting_ai"
                             "failed" -> "server_error"
                             else -> "uploaded"
@@ -74,7 +76,7 @@ class UploadWorker(context: Context, parameters: WorkerParameters) : Worker(cont
                         if (state == "uploaded") retry = true
                     }
                 } catch (_: Exception) {
-                    store.update(row.id, row.status, "Нет подтверждения сервера. Аудио сохранено на телефоне.")
+                    store.update(row.id, if (row.status == "uploaded") "uploaded" else "retry", "Нет подтверждения сервера. Аудио сохранено на телефоне.")
                     retry = true
                 }
             }
@@ -100,11 +102,12 @@ class UploadWorker(context: Context, parameters: WorkerParameters) : Worker(cont
     companion object {
         fun enqueue(context: Context, manual: Boolean = false) {
             if (manual) LocalStore(context).use { store ->
-                store.all().filter { it.status in listOf("needs_attention", "server_error", "awaiting_ai") }.forEach { row ->
-                    store.update(row.id, if (row.serverJson.isEmpty()) "queued" else "uploaded")
+                store.all().filter { it.status in listOf("needs_attention", "server_error", "awaiting_ai", "saved") }.forEach { row ->
+                    store.update(row.id, if (row.serverJson.isEmpty()) "retry" else "uploaded")
                 }
             }
             val work = OneTimeWorkRequestBuilder<UploadWorker>()
+                .setInputData(workDataOf("manual" to manual))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS).build()
             WorkManager.getInstance(context).enqueueUniqueWork("upload", ExistingWorkPolicy.APPEND_OR_REPLACE, work)

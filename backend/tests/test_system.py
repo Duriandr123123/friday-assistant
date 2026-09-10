@@ -46,6 +46,49 @@ def test_health_and_auth(client):
     assert client.get("/openapi.json").status_code == 200
 
 
+def test_recorder_import_normalizes_and_deduplicates(client):
+    output = io.BytesIO()
+    with wave.open(output, 'wb') as f:
+        f.setnchannels(2); f.setsampwidth(2); f.setframerate(44100)
+        f.writeframes(b'\0\0\0\0' * 44100)
+    def send():
+        return client.post('/imports/audio', files={'file': ('recorder.wav', output.getvalue())},
+            data={'captured_at': '2026-09-09T12:00:00+05:00'})
+    response = send()
+    assert response.status_code == 202, response.text
+    rid = response.json()['recordings'][0]['id']
+    assert send().json()['recordings'][0]['id'] == rid
+    assert len(client.get('/recordings').json()) == 1
+    with wave.open(io.BytesIO(client.get(f'/recordings/{rid}/audio').content)) as f:
+        assert (f.getnchannels(), f.getframerate(), f.getsampwidth()) == (1,16000,2)
+    assert client.app.state.processor.tick()
+    assert client.get(f'/recordings/{rid}').json()['status'] == 'saved'
+
+
+def test_recorder_import_rejects_invalid(client):
+    response = client.post('/imports/audio', files={'file': ('bad.wav', b'broken')},
+        data={'captured_at': '2026-09-09T12:00:00+05:00'})
+    assert response.status_code == 422
+    assert client.get('/recordings').json() == []
+
+
+def test_recorder_split_preserves_tail():
+    from backend.app.import_audio import normalize_audio
+    output = io.BytesIO()
+    with wave.open(output, 'wb') as f:
+        f.setnchannels(1); f.setsampwidth(2); f.setframerate(16000)
+        f.writeframes(b'\0\0' * (600 * 16000 + 1))
+    output.seek(0)
+    parts = list(normalize_audio(output))
+    assert len(parts) == 2
+    total = 0
+    for _, data in parts:
+        with wave.open(io.BytesIO(data)) as f:
+            assert 1600 <= f.getnframes() <= 600 * 16000
+            total += f.getnframes()
+    assert total == 600 * 16000 + 1
+
+
 def test_e2e_audio_database_markdown_search(client, settings):
     response = upload(client)
     assert response.status_code == 202, response.text
@@ -59,7 +102,7 @@ def test_e2e_audio_database_markdown_search(client, settings):
     assert markdown.status_code == 200
     assert "Исходная расшифровка" in markdown.text
     assert client.get("/notes?q=поставщик").json()[0]["id"] == recording_id
-    assert len(list(settings.notes_directory.rglob("*.md"))) == 1
+    assert len(list(settings.notes_directory.glob("Заметки/*/*.md"))) == 1
     assert client.get(f"/recordings/{recording_id}/audio").content == wav()
 
 
@@ -127,10 +170,10 @@ def test_edit_preserves_raw_and_reuses_note_path(client, settings):
     row = client.get(f"/recordings/{rid}").json()
     assert row["raw_transcript"] == original
     assert row["edited_transcript"] == "Моя правка"
-    assert len(list(settings.notes_directory.rglob("*.md"))) == 1
+    assert len(list(settings.notes_directory.glob("Заметки/*/*.md"))) == 1
     assert client.delete(f"/recordings/{rid}").status_code == 204
     assert client.get(f"/recordings/{rid}").status_code == 404
-    assert not list(settings.notes_directory.rglob("*.md"))
+    assert not list(settings.notes_directory.glob("Заметки/*/*.md"))
 
 
 def test_pending_mode_is_honest(settings):

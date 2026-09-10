@@ -1,10 +1,10 @@
 package local.jarvis.thoughts
 
 object WakeWord {
-    const val DISPLAY = "Сюзанна"
+    const val DISPLAY = "Пятница"
     // Both spellings represent the same spoken name; do not match substrings or 'Сюзан'.
     fun matches(text: String): Boolean = text.lowercase(java.util.Locale.ROOT)
-        .split(Regex("[^а-яё]+" )).any { it == "сюзанна" || it == "сузанна" }
+        .split(Regex("[^а-яё]+" )).any { it == "пятница" }
 }
 
 class WakeWordGate {

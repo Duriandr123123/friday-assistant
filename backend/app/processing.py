@@ -27,12 +27,21 @@ class Processor:
         self.stop_event = threading.Event()
         self.thread = None
         self.mutex = threading.RLock()
+        from backend.app.actions import ActionService
+        from backend.app.calendar import GoogleCalendar
+        self.calendar = GoogleCalendar(settings)
+        self.actions = ActionService(settings, self.sessions, self.mutex, self.calendar)
 
     def recover(self):
         # The process-wide file lock ensures that no other server is still processing these rows.
         with self.sessions.begin() as session:
             session.execute(update(Recording).where(Recording.status == "processing")
                             .values(status="queued", next_attempt=0))
+        # Repair the narrow crash window between saving a note and staging its actions.
+        with self.sessions() as session:
+            for row in session.scalars(select(Recording).where(Recording.status == 'saved', Recording.processing_mode == 'openai')):
+                if row.result:
+                    self.actions.stage(row, NoteContent.model_validate(row.result))
 
     def start(self):
         self.recover()
@@ -41,12 +50,16 @@ class Processor:
 
     def run(self):
         next_cleanup = 0
+        next_actions = 0
         while not self.stop_event.is_set():
             try:
                 if time.time() >= next_cleanup:
                     self.cleanup()
                     next_cleanup = time.time() + 3600
                 did_work = self.tick()
+                if time.time() >= next_actions:
+                    self.actions.run_pending()
+                    next_actions = time.time() + 30
             except Exception:
                 logger.error("worker_iteration_failed")
                 did_work = False
@@ -100,6 +113,9 @@ class Processor:
                 session.execute(text("INSERT INTO notes_fts (id,body) VALUES (:id,:body)"), {"id": row.id, "body": body})
                 session.commit()
                 # Retain audio by default. Cleanup only for successfully AI-processed notes.
+                if row.processing_mode == 'openai':
+                    self.actions.stage(row, content)
+                    self.actions.run_pending()
                 if not self.settings.save_audio and row.status == "saved" and row.audio_path:
                     Path(row.audio_path).unlink(missing_ok=True)
                 logger.info(row.status, extra={"recording_id": recording_id})

@@ -64,7 +64,15 @@ class MainActivity : Activity() {
             }
         }
         root.addView(backgroundSwitch)
-        root.addView(text("Скажите «Сюзанна», дождитесь сигнала и говорите. Через 5 секунд тишины запись завершится. Фоновый режим использует микрофон телефона и расходует батарею.", 14f))
+        root.addView(text("Скажите «Пятница», дождитесь сигнала и говорите. Время тишины выбирается в настройках. Фоновый режим использует микрофон телефона и расходует батарею.", 14f))
+        root.addView(Switch(this).apply {
+            text = "Автоматическая отправка"; isChecked = SecureSettings(this@MainActivity).autoSend
+            setOnCheckedChangeListener { _, checked ->
+                SecureSettings(this@MainActivity).autoSend = checked
+                if (checked) UploadWorker.enqueue(this@MainActivity)
+                else toast("Новые записи остаются на телефоне. Начатая отправка может завершиться.")
+            }
+        })
         root.addView(button("Подключение и микрофон") { settingsDialog() })
         root.addView(button("Отправить / обновить") { UploadWorker.enqueue(this, manual = true); toast("Очередь запущена") })
         root.addView(text("Записи на телефоне", 22f))
@@ -116,10 +124,10 @@ class MainActivity : Activity() {
         val url = EditText(this).apply { hint = "http://192.168.1.10:8765"; setText(settings.server); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI }
         val token = EditText(this).apply { hint = "Токен из connection.txt"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
         val bluetooth = CheckBox(this).apply { text = "Использовать гарнитуру, если доступна"; isChecked = settings.bluetooth }
-        val silence = CheckBox(this).apply { text = "Останавливать после 5 секунд тишины (экспериментально)"; isChecked = settings.silenceSeconds > 0 }
+        val silence = EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(settings.silenceSeconds.toString()); hint = "Тишина: 1–10 секунд" }
         box.addView(text("Адрес компьютера")); box.addView(url); box.addView(token)
         box.addView(text("Оставьте токен пустым, чтобы сохранить текущий. Без подключения запись остаётся на телефоне.", 14f))
-        box.addView(bluetooth); box.addView(silence)
+        box.addView(bluetooth); box.addView(text("Остановка после тишины: 1–10 секунд")); box.addView(silence)
         val dialog = AlertDialog.Builder(this).setTitle("Подключение").setView(box).setPositiveButton("Сохранить", null)
             .setNegativeButton("Отмена", null).create()
         dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -129,19 +137,19 @@ class MainActivity : Activity() {
                 if (!SecureSettings.validServer(value)) { url.error = "Нужен HTTPS-адрес или HTTP с локальным IP"; return@setOnClickListener }
                 val secret = token.text.toString().trim()
                 if (secret.isNotEmpty() && secret.length < 24) { token.error = "Токен должен содержать минимум 24 символа"; return@setOnClickListener }
-                settings.server = value; settings.bluetooth = bluetooth.isChecked; settings.silenceSeconds = if (silence.isChecked) 5 else 0
+                settings.server = value; settings.bluetooth = bluetooth.isChecked; settings.silenceSeconds = silence.text.toString().toIntOrNull()?.coerceIn(1,10) ?: 2
                 if (secret.isNotEmpty()) settings.saveToken(secret)
                 val permissions = mutableListOf<String>()
                 if (Build.VERSION.SDK_INT >= 31 && bluetooth.isChecked) permissions += Manifest.permission.BLUETOOTH_CONNECT
                 if (Build.VERSION.SDK_INT >= 33) permissions += Manifest.permission.POST_NOTIFICATIONS
                 val missing = permissions.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
                 if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), 20)
-                UploadWorker.enqueue(this, manual = true); dialog.dismiss()
+                UploadWorker.enqueue(this); dialog.dismiss()
             }
         }
         dialog.show()
     }
-    private val statuses = mapOf("recording" to "Слушаю", "queued" to "В очереди", "retry" to "Повтор отправки",
+    private val statuses = mapOf("recording" to "Слушаю", "queued" to "Ожидает отправки", "sending" to "Отправляется", "retry" to "Повтор отправки",
         "uploaded" to "Обрабатывается на ПК", "saved" to "Сохранено", "awaiting_ai" to "Расшифровано · ожидает AI",
         "server_error" to "Ошибка обработки на ПК", "needs_attention" to "Нужно повторить отправку", "local_error" to "Ошибка записи")
     private fun refreshRows() {
@@ -158,6 +166,23 @@ class MainActivity : Activity() {
             val title = try { JSONObject(row.serverJson).optJSONObject("result")?.optString("title") } catch (_: Exception) { null }
             val label = "${title ?: row.capturedAt.take(16).replace('T', ' ')}\n${statuses[row.status] ?: row.status}"
             list.addView(button(label) { showRecording(row) })
+            if (row.status in listOf("queued", "local_error") && row.serverJson.isEmpty()) list.addView(button("Удалить без отправки") {
+                AlertDialog.Builder(this).setTitle("Удалить запись с телефона?").setMessage("Запись будет удалена из очереди и памяти телефона.")
+                    .setNegativeButton("Оставить", null).setPositiveButton("Удалить") { _, _ ->
+                        val deleted = LocalStore(this).use { it.deleteUnsent(row.id) }
+                        toast(if (deleted) "Удалено" else "Отправка уже началась. Проверьте результат.")
+                        lastSnapshot = ""; refreshRows()
+                    }.show()
+            })
+            try {
+                val outcomes = JSONObject(row.serverJson).optJSONArray("action_results")
+                if (outcomes != null) for (i in 0 until outcomes.length()) {
+                    val a = outcomes.getJSONObject(i)
+                    val status = mapOf("applied" to "Выполнено", "cancelled" to "Отменено", "needs_input" to "Нужно уточнение", "waiting" to "Ожидает", "pending" to "В очереди")[a.optString("status")] ?: a.optString("status")
+                    list.addView(text(a.getString("description") + " — " + status,14f))
+                }
+            } catch (_: Exception) { }
+            if (row.serverJson.isNotEmpty()) list.addView(button("Результат / отмена") { ActionResults.show(this, row.id) })
         }
     }
     private fun showRecording(row: LocalRecording) {
@@ -183,6 +208,7 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this).setTitle(result?.optString("title") ?: "Запись мысли").setView(scroll)
             .setPositiveButton("Закрыть") { _, _ -> player?.release(); player = null }
             .setNeutralButton("Прослушать") { _, _ ->
+                if (RecordingService.running) { toast("Сначала выключите запись и фоновый микрофон"); return@setNeutralButton }
                 try {
                     player?.release()
                     player = MediaPlayer().apply { setDataSource(row.path); prepare(); start(); setOnCompletionListener { it.release(); player = null } }

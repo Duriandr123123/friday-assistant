@@ -37,6 +37,30 @@ class MentionedDate(StrictModel):
     uncertain: bool
 
 
+class ActionIntent(StrictModel):
+    kind: Literal['expense', 'income', 'debt_open', 'debt_payment', 'calendar']
+    evidence: str = Field(min_length=1, max_length=4000)
+    description: str = Field(min_length=1, max_length=500)
+    amount_minor: int | None = Field(ge=1, le=100000000000)
+    currency: Literal['KZT'] | None
+    category: str | None = Field(max_length=80)
+    person: str | None = Field(max_length=120)
+    direction: Literal['i_owe', 'owed_to_me'] | None
+    cash_moved: bool
+    due_date: str | None = Field(pattern=r'^\d{4}-\d{2}-\d{2}$', description='Только срок долга YYYY-MM-DD, иначе null; для calendar всегда null')
+    starts_at: AwareDatetime | None
+    duration_minutes: int | None = Field(ge=1, le=1440)
+    reminder_minutes: int | None = Field(ge=0, le=40320)
+    clarification: str | None = Field(max_length=1000)
+
+    @field_validator('due_date')
+    @classmethod
+    def valid_due_date(cls, value):
+        if value is not None:
+            date.fromisoformat(value)
+        return value
+
+
 class NoteContent(StrictModel):
     title: str = Field(min_length=1, max_length=180)
     summary: str = Field(max_length=6000)
@@ -55,6 +79,7 @@ class NoteContent(StrictModel):
     priority: Literal["low", "normal", "high"]
     confidence: float = Field(ge=0, le=1)
     uncertainties: list[str]
+    actions: list[ActionIntent] = Field(default_factory=list, max_length=30)
 
 
 class TextInput(StrictModel):

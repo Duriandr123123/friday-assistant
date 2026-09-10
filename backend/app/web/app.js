@@ -65,3 +65,84 @@ if(document.modelContext?.registerTool){
   },{signal:lifecycle.signal})).catch(()=>{});}catch{}
   window.addEventListener('pagehide',()=>lifecycle.abort(),{once:true});
 }
+
+$('import-audio').onclick=()=>$('audio-files').click();
+$('audio-files').onchange=async()=>{
+ const files=Array.from($('audio-files').files); $('import-audio').disabled=true;
+ let done=0; const failures=[];
+ try { for(const file of files){
+  notice(`Импорт: ${file.name}`);
+  const body=new FormData(); body.append('file',file); body.append('captured_at',new Date(file.lastModified||Date.now()).toISOString());
+  try { await api('/imports/audio',{method:'POST',body}); done++; }
+  catch(e){ failures.push(`${file.name}: ${e.message}`); }
+ }
+ await load(); notice(`Импортировано файлов: ${done}. Обработка в очереди. ${failures.join('; ')}`);
+ } finally { $('import-audio').disabled=false; $('audio-files').value=''; }
+};
+
+const actionLabels={expense:'Расход',income:'Доход',debt_open:'Новый долг',debt_payment:'Погашение долга',calendar:'Встреча'};
+const actionStates={pending:'В очереди',waiting:'Ожидает подключения или бюджета',needs_input:'Нужно уточнение',applied:'Выполнено',cancelled:'Отменено'};
+const money=v=>v===null?'не задан':(v/100).toLocaleString('ru-RU',{minimumFractionDigits:2})+' ₸';
+async function loadActions(){
+ try {
+ const state=await(await api('/actions')).json();
+ $('budget-summary').textContent=`Начальный бюджет: ${money(state.initial_minor)}. Остаток: ${money(state.balance_minor)}.`;
+ $('calendar-state').textContent=state.calendar.connected?'Google: разрешение сохранено; доступ проверяется при отправке.':state.calendar.connecting?'Google: ожидается вход в открытом окне.':'Google Календарь пока не подключён.';
+ $('debt-list').replaceChildren(node('h3','Долги'));
+ for(const d of state.debts)$('debt-list').append(node('p',`${d.direction==='i_owe'?'Я должен':'Мне должны'} · ${d.person}: ${money(d.remaining_minor)}${d.due_date?' · срок '+d.due_date:''}`));
+ $('action-list').replaceChildren();
+ for(const a of state.actions.slice().reverse()){
+ const box=node('section');box.append(node('h3',actionLabels[a.payload.kind]+' · '+a.payload.description),node('p',actionStates[a.status]));
+ box.append(node('p','Исходная фраза: '+a.payload.evidence,'muted'));
+ if(a.payload.amount_minor!==null)box.append(node('p',money(a.payload.amount_minor)));
+ if(a.payload.starts_at)box.append(node('p',new Date(a.payload.starts_at).toLocaleString('ru-RU')));
+ if(a.error)box.append(node('p',a.error));
+ if(a.status!=='cancelled'){
+ const cancel=node('button','Отменить действие','secondary');cancel.onclick=async()=>{try{await api(`/actions/${a.id}/cancel`,{method:'POST'});await loadActions();}catch(e){notice(e.message);}};box.append(cancel);
+ }
+ if(['needs_input','pending','waiting'].includes(a.status)&&!(a.payload.kind==='calendar'&&a.status==='waiting')){
+ const edit=node('button','Уточнить','secondary');edit.onclick=()=>editAction(a);box.append(edit);
+ }
+ $('action-list').append(box);
+ }
+ } catch(e){notice(e.message);}
+}
+function editAction(a){
+ const dialog=node('dialog'),form=node('form'), fields={};form.append(node('h2','Уточнить поручение'));
+ function field(key,title,type='text',value=a.payload[key]){const label=node('label',title),input=node('input');input.type=type;input.value=value??'';label.append(input);form.append(label);fields[key]=input;return input;}
+ field('description','Описание').required=true;
+ if(a.payload.kind==='calendar'){
+ field('starts_at','Дата и время (часовой пояс этого компьютера)','datetime-local','').required=true;
+ field('duration_minutes','Длительность, минут','number',a.payload.duration_minutes??60).min=1;
+ field('reminder_minutes','Напомнить за минут','number',a.payload.reminder_minutes??30).min=0;
+ }else{
+ const amount=field('amount','Сумма, ₸','number',(a.payload.amount_minor??0)/100);amount.step='0.01';amount.min='0.01';amount.required=true;
+ field('category','Категория');
+ if(a.payload.kind.startsWith('debt')){
+ field('person','Человек').required=true;
+ const label=node('label','Кто должен'),select=node('select');for(const [v,t] of [['i_owe','Я должен'],['owed_to_me','Мне должны']]){const o=node('option',t);o.value=v;select.append(o);}select.value=a.payload.direction??'i_owe';label.append(select);form.append(label);fields.direction=select;
+ field('due_date','Срок возврата (необязательно)','date');
+ const cash=field('cash_moved','В этой операции действительно передавались деньги','checkbox');cash.checked=a.payload.cash_moved;
+ }
+ }
+ const save=node('button','Сохранить и выполнить');form.append(save);const close=node('button','Закрыть','secondary');close.type='button';close.onclick=()=>dialog.close();form.append(close);
+ form.onsubmit=async e=>{e.preventDefault();save.disabled=true;try{
+ const p={...a.payload,clarification:null};
+ for(const [k,input] of Object.entries(fields)){
+ if(k==='amount'){p.amount_minor=Math.round(Number(input.value)*100);p.currency='KZT';}
+ else if(k==='cash_moved')p[k]=input.checked;
+ else if(k==='starts_at')p[k]=new Date(input.value).toISOString();
+ else if(k.endsWith('_minutes'))p[k]=Number(input.value);
+ else p[k]=input.value||null;
+ }
+ await api(`/actions/${a.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});dialog.close();await loadActions();
+ }catch(e){notice(e.message);}finally{save.disabled=false;}};
+ dialog.append(form);document.body.append(dialog);dialog.onclose=()=>dialog.remove();dialog.showModal();
+}
+$('finance-panel').ontoggle=()=>{if($('finance-panel').open)loadActions();};
+$('actions-refresh').onclick=loadActions;
+$('actions-retry').onclick=async()=>{try{await api('/actions/retry',{method:'POST'});await loadActions();}catch(e){notice(e.message);}};
+$('budget-form').onsubmit=async e=>{e.preventDefault();try{await api('/budget',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({initial_minor:Math.round(Number($('budget-value').value)*100)})});await loadActions();}catch(e){notice(e.message);}};
+$('google-json-button').onclick=()=>$('google-json').click();
+$('google-json').onchange=async()=>{try{const f=$('google-json').files[0];if(!f)return;if(f.size>32000)throw Error('Слишком большой файл настроек');await api('/calendar/client',{method:'POST',headers:{'Content-Type':'application/json'},body:await f.text()});await loadActions();}catch(e){notice(e.message);}finally{$('google-json').value='';}};
+$('google-connect').onclick=async()=>{try{const r=await(await api('/calendar/connect',{method:'POST'})).json();const link=node('a','Открыть вход Google');link.href=r.url;link.target='_blank';link.rel='noopener noreferrer';$('calendar-state').replaceChildren(link);link.click();}catch(e){notice(e.message);}};

@@ -9,7 +9,7 @@ requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "pydantic-settings>=2.8,<3",
   "sqlalchemy>=2.0.38,<3", "alembic>=1.15,<2", "httpx>=0.28,<1",
-  "python-multipart>=0.0.20,<1", "tzdata>=2025.1", "filelock>=3.17,<4"
+  "python-multipart>=0.0.20,<1", "tzdata>=2025.1", "filelock>=3.17,<4", "av>=14,<19", "numpy>=1.26,<3"
 ]
 [project.optional-dependencies]
 test = ["pytest>=8.3,<10"]

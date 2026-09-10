@@ -27,6 +27,23 @@ class Recording(Base):
     processing_mode: Mapped[str] = mapped_column(String(32), default="pending")
 
 
+class Action(Base):
+    __tablename__ = 'actions'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    recording_id: Mapped[str] = mapped_column(String(36), index=True)
+    created_at: Mapped[str] = mapped_column(String(50))
+    payload: Mapped[dict] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(32), default='pending')
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class Preference(Base):
+    __tablename__ = 'preferences'
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSON)
+
+
 def make_engine(directory: Path):
     engine = create_engine(f"sqlite:///{(directory / 'jarvis.sqlite3').as_posix()}",
                            connect_args={"check_same_thread": False, "timeout": 30})
