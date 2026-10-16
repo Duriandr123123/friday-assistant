@@ -175,15 +175,20 @@ class AssistantService:
                         for a in p.get('annotations',[]):
                             if a.get('type')=='url_citation' and a.get('url','').startswith(('https://','http://')):
                                 citations.append({'title':a.get('title','Источник'),'url':a['url']})
-                self.store.save(tid,status='waiting_approval' if self.approvals(tid) else 'completed',
-                                response=text,citations=citations,error=None)
+                with self.store.lock:
+                    if self.store.get(tid)['status']=='cancelled': return True
+                    self.store.save(tid,status='waiting_approval' if self.approvals(tid) else 'completed',
+                                    response=text,citations=citations,error=None)
                 return True
-            self.store.save(tid,status='paused',response='Задача ещё не завершена. Достигнут лимит шагов за один проход; можно продолжить.',context=items)
+            with self.store.lock:
+                if self.store.get(tid)['status']!='cancelled':
+                    self.store.save(tid,status='paused',response='Задача ещё не завершена. Достигнут лимит шагов за один проход; можно продолжить.',context=items)
         except Exception as exc:
             code=exc.code if isinstance(exc,ProviderError) else 'assistant_internal_error'
-            if self.store.get(tid)['status']!='cancelled':
-                self.store.save(tid,status='error',error=code,
-                    response='Задание сохранено, но обработка остановилась. Проверьте подключение и настройки API, затем нажмите «Продолжить».')
+            with self.store.lock:
+                if self.store.get(tid)['status']!='cancelled':
+                    self.store.save(tid,status='error',error=code,
+                        response='Задание сохранено, но обработка остановилась. Проверьте подключение и настройки API, затем нажмите «Продолжить».')
         return True
 
     def approve(self, approval_id, approved):
