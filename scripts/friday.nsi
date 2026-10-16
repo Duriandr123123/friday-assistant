@@ -1,7 +1,7 @@
 Unicode True
 !include "MUI2.nsh"
 Name "Пятница"
-OutFile "..\dist\Friday-Setup-0.4.0.exe"
+OutFile "..\dist\Friday-Setup-0.5.0.exe"
 InstallDir "$LOCALAPPDATA\Programs\FridayAssistant"
 RequestExecutionLevel user
 SetCompressor zlib
@@ -18,7 +18,7 @@ Section "Пятница"
   File /r "..\dist\Friday\*.*"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FridayAssistant" "DisplayName" "Пятница"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FridayAssistant" "DisplayVersion" "0.4.0"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FridayAssistant" "DisplayVersion" "0.5.0"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FridayAssistant" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   IfSilent no_shortcuts
   CreateDirectory "$SMPROGRAMS\Пятница"

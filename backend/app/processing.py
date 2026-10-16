@@ -97,6 +97,22 @@ class Processor:
                     session.commit()
                     logger.info("transcribed", extra={"recording_id": recording_id})
                 transcript = row.edited_transcript if row.edited_transcript is not None else row.raw_transcript
+                if row.source.startswith('assistant:'):
+                    from uuid import UUID
+                    from backend.app.schemas import verbatim_content
+                    conversation_id=str(UUID(row.source.split(':',1)[1]))
+                    if len(transcript)>16000:
+                        raise ProviderError('assistant_message_too_long',retryable=False)
+                    self.assistant.store.enqueue(row.id, conversation_id, transcript)
+                    content=verbatim_content(transcript)
+                    content.title='Поручение Пятнице'
+                    content.summary='Поручение принято. Ответ и действия доступны в диалоге с Пятницей.'
+                    row.result=content.model_dump(mode='json')
+                    row.processing_mode='assistant'
+                    row.markdown_path=str(self.notes.save(row,content))
+                    row.status='saved'; row.error=None
+                    session.commit()
+                    return True
                 if row.result is None:
                     content = self.llm.process(transcript, row.captured_at, self.settings.timezone)
                     row.result = content.model_dump(mode="json")

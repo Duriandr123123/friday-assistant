@@ -48,7 +48,12 @@ class MainActivity : Activity() {
             insets
         }
         root.addView(text("ДЖАРВИС", 28f))
-        root.addView(text("Ваши мысли — под рукой", 16f))
+        root.addView(text("Пятница — ваш личный помощник", 16f))
+        root.addView(button("Открыть диалог с Пятницей") { startActivity(Intent(this,AssistantChatActivity::class.java)) })
+        root.addView(Switch(this).apply {
+            text="Голосовые команды помощнику"; isChecked=ChatState(this@MainActivity).enabled
+            setOnCheckedChangeListener { _,checked -> ChatState(this@MainActivity).enabled=checked }
+        })
         state = text("Готов", 20f); root.addView(state)
         record = button("Записать мысль") {
             if (RecordingService.active) startService(Intent(this, RecordingService::class.java).setAction(RecordingService.STOP))
@@ -198,6 +203,10 @@ class MainActivity : Activity() {
     private fun showRecording(row: LocalRecording) {
         val server = try { JSONObject(row.serverJson) } catch (_: Exception) { JSONObject() }
         val result = server.optJSONObject("result")
+        if(row.conversationId.isNotEmpty()) {
+            ChatState(this).select(row.conversationId)
+            startActivity(Intent(this,AssistantChatActivity::class.java)); return
+        }
         val body = buildString {
             append(statuses[row.status] ?: row.status); append("\n\n")
             if (row.error.isNotBlank()) append(row.error + "\n\n")

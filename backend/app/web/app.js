@@ -87,7 +87,7 @@ async function loadActions(){
  try {
  const state=await(await api('/actions')).json();
  $('budget-summary').textContent=`Начальный бюджет: ${money(state.initial_minor)}. Остаток: ${money(state.balance_minor)}.`;
- $('calendar-state').textContent=state.calendar.connected?'Google: разрешение сохранено; доступ проверяется при отправке.':state.calendar.connecting?'Google: ожидается вход в открытом окне.':'Google Календарь пока не подключён.';
+ $('calendar-state').textContent=state.calendar.error || (state.calendar.connected?'Google: разрешение сохранено; доступ проверяется при отправке.':state.calendar.connecting?'Google: ожидается вход в открытом окне.':'Google Календарь пока не подключён.');
  $('debt-list').replaceChildren(node('h3','Долги'));
  for(const d of state.debts)$('debt-list').append(node('p',`${d.direction==='i_owe'?'Я должен':'Мне должны'} · ${d.person}: ${money(d.remaining_minor)}${d.due_date?' · срок '+d.due_date:''}`));
  $('action-list').replaceChildren();

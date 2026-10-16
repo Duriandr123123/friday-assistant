@@ -5,6 +5,7 @@ import json
 import secrets
 import threading
 import time
+from pathlib import Path
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlencode, urlparse, parse_qs
@@ -12,6 +13,7 @@ import httpx
 from backend.app.storage import atomic_write
 
 SCOPE = 'https://www.googleapis.com/auth/calendar.events.owned'
+PACKAGED_CLIENT = Path(__file__).with_name('google-desktop-client.json')
 
 
 class GoogleCalendar:
@@ -23,9 +25,28 @@ class GoogleCalendar:
         self.last_error = None
 
     def status(self):
-        return {'client_configured': (self.root/'google-client.json').exists(),
-                'connected': (self.root/'google-token.json').exists(),
-                'connecting': self.oauth is not None, 'error':self.last_error}
+        reauth=(self.root/'google-reauth-required').exists()
+        return {'client_configured': (self.root/'google-client.json').exists() or PACKAGED_CLIENT.exists(),
+                'connected': (self.root/'google-token.json').exists() and not reauth,
+                'reauth_required':reauth,'connecting': self.oauth is not None,
+                'error':self.last_error or ('Разрешение Google истекло или отозвано. Нажмите «Подключить Google Календарь» и войдите снова.' if reauth else None)}
+
+    def client(self):
+        # Pin the client per installation: later bundle updates must not switch
+        # the credentials used to refresh an existing user's token.
+        path = self.root/'google-client.json'
+        if path.exists():
+            return json.loads(path.read_text(encoding='utf-8'))
+        if (self.root/'google-token.json').exists():
+            raise ValueError('Восстановите настройки исходного подключения Google')
+        payload = json.loads(PACKAGED_CLIENT.read_text(encoding='utf-8'))
+        installed = payload.get('installed', {})
+        cid, secret = installed.get('client_id'), installed.get('client_secret')
+        if not isinstance(cid, str) or not cid.endswith('.apps.googleusercontent.com') or not isinstance(secret, str):
+            raise ValueError('Неверные настройки Google в установщике')
+        client = {'client_id': cid, 'client_secret': secret}
+        atomic_write(path, json.dumps(client).encode())
+        return client
 
     def configure(self, payload):
         installed = payload.get('installed', {})
@@ -40,7 +61,7 @@ class GoogleCalendar:
     def begin(self):
         with self.lock:
             if self.oauth: raise ValueError('Окно подключения уже открыто')
-            client = json.loads((self.root/'google-client.json').read_text())
+            client = self.client()
             state = secrets.token_urlsafe(32)
             verifier = secrets.token_urlsafe(48)
             challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
@@ -62,6 +83,7 @@ class GoogleCalendar:
                         if not token.get('refresh_token'): raise ValueError('Missing refresh token')
                         token['expires_at'] = time.time()+token.get('expires_in',3600)
                         atomic_write(owner.root/'google-token.json',json.dumps(token).encode())
+                        (owner.root/'google-reauth-required').unlink(missing_ok=True)
                         owner.last_error = None
                         message = 'Google Calendar connected. You may close this window.'
                     except Exception:
@@ -90,11 +112,16 @@ class GoogleCalendar:
 
     def access_token(self):
         with self.lock:
+            if (self.root/'google-reauth-required').exists():
+                raise ValueError('Нужно повторно подключить Google Календарь')
             token = json.loads((self.root/'google-token.json').read_text())
             if token.get('expires_at',0) < time.time()+60:
-                client = json.loads((self.root/'google-client.json').read_text())
+                client = self.client()
                 response = httpx.post('https://oauth2.googleapis.com/token',data={**client,
                     'grant_type':'refresh_token','refresh_token':token['refresh_token']},timeout=30)
+                if response.status_code in (400,401) and response.json().get('error')=='invalid_grant':
+                    atomic_write(self.root/'google-reauth-required',b'reconnect')
+                    self.last_error='Разрешение Google истекло или отозвано. Подключите календарь повторно.'
                 response.raise_for_status(); token.update(response.json())
                 token['expires_at'] = time.time()+token.get('expires_in',3600)
                 atomic_write(self.root/'google-token.json',json.dumps(token).encode())

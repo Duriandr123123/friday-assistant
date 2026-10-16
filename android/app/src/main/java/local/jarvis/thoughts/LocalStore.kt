@@ -9,21 +9,23 @@ import java.time.OffsetDateTime
 import java.util.UUID
 
 data class LocalRecording(val id: String, val path: String, val capturedAt: String,
-    val status: String, val error: String, val serverJson: String)
+    val status: String, val error: String, val serverJson: String, val conversationId: String = "")
 
-class LocalStore(context: Context) : SQLiteOpenHelper(context, "recordings.db", null, 1) {
+class LocalStore(private val context: Context) : SQLiteOpenHelper(context, "recordings.db", null, 2) {
     init { setWriteAheadLoggingEnabled(true) }
     override fun onConfigure(db: SQLiteDatabase) { db.execSQL("PRAGMA synchronous=FULL") }
     override fun onCreate(db: SQLiteDatabase) {
-        db.execSQL("CREATE TABLE recordings(id TEXT PRIMARY KEY,path TEXT NOT NULL,captured_at TEXT NOT NULL,status TEXT NOT NULL,error TEXT NOT NULL DEFAULT '',server_json TEXT NOT NULL DEFAULT '')")
+        db.execSQL("CREATE TABLE recordings(id TEXT PRIMARY KEY,path TEXT NOT NULL,captured_at TEXT NOT NULL,status TEXT NOT NULL,error TEXT NOT NULL DEFAULT '',server_json TEXT NOT NULL DEFAULT '',conversation_id TEXT NOT NULL DEFAULT '')")
     }
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { if(oldVersion<2) db.execSQL("ALTER TABLE recordings ADD COLUMN conversation_id TEXT NOT NULL DEFAULT ''") }
     fun create(folder: File): LocalRecording {
         folder.mkdirs()
         val id = UUID.randomUUID().toString()
-        val row = LocalRecording(id, File(folder, "$id.wav").absolutePath, OffsetDateTime.now().toString(), "recording", "", "")
+        val chat=ChatState(context)
+        val row = LocalRecording(id, File(folder, "$id.wav").absolutePath, OffsetDateTime.now().toString(), "recording", "", "", if(chat.enabled) chat.conversation() else "")
         writableDatabase.insertOrThrow("recordings", null, ContentValues().apply {
             put("id", row.id); put("path", row.path); put("captured_at", row.capturedAt); put("status", row.status)
+            put("conversation_id",row.conversationId)
         })
         return row
     }
@@ -33,7 +35,7 @@ class LocalStore(context: Context) : SQLiteOpenHelper(context, "recordings.db", 
         }, "id=?", arrayOf(id))
     }
     fun all(): List<LocalRecording> = readableDatabase.rawQuery("SELECT * FROM recordings ORDER BY captured_at DESC", null).use { c ->
-        buildList { while (c.moveToNext()) add(LocalRecording(c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4), c.getString(5))) }
+        buildList { while (c.moveToNext()) add(LocalRecording(c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4), c.getString(5), c.getString(6))) }
     }
     fun claim(id: String): Boolean = writableDatabase.update("recordings", ContentValues().apply { put("status", "sending") },
         "id=? AND status IN ('queued','retry')", arrayOf(id)) == 1

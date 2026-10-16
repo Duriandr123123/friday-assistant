@@ -40,7 +40,7 @@ class UploadWorker(context: Context, parameters: WorkerParameters) : Worker(cont
                         if (!file.isFile) { store.update(row.id, "local_error", "Аудиофайл отсутствует"); continue }
                         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
                             .addFormDataPart("recording_id", row.id).addFormDataPart("captured_at", row.capturedAt)
-                            .addFormDataPart("source", "android").addFormDataPart("device", "${Build.MANUFACTURER} ${Build.MODEL}".take(120))
+                            .addFormDataPart("source", if(row.conversationId.isEmpty()) "android" else "assistant:${row.conversationId}").addFormDataPart("device", "${Build.MANUFACTURER} ${Build.MODEL}".take(120))
                             .addFormDataPart("file", "${row.id}.wav", file.asRequestBody("audio/wav".toMediaType())).build()
                         builder.url("${settings.server}/recordings").post(body)
                     } else builder.url("${settings.server}/recordings/${row.id}")
@@ -73,6 +73,7 @@ class UploadWorker(context: Context, parameters: WorkerParameters) : Worker(cont
                         }
                         store.update(row.id, state, if (serverStatus == "failed") result.optString("error") else "", json)
                         if (state == "saved" || state == "awaiting_ai") notifySaved(row.id, state)
+                        if(state=="saved" && row.conversationId.isNotEmpty()) ChatWorker.enqueue(applicationContext)
                         if (state == "uploaded") retry = true
                     }
                 } catch (_: Exception) {

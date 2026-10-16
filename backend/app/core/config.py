@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openai_stt_model: str = "whisper-1"
     openai_llm_model: str = ""
+    openai_agent_model: str = ""
+    assistant_web_search: bool = True
+    assistant_city: str = "Karaganda"
+    assistant_max_steps: int = Field(12, ge=1, le=40)
+    agents_python: Path = ROOT / '.tools' / 'assistant-agents' / 'Scripts' / 'python.exe'
     max_attempts: int = Field(5, ge=1, le=20)
     retry_base_seconds: float = Field(10, ge=0, le=3600)
     max_audio_mb: int = Field(24, ge=1, le=100)

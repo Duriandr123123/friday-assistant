@@ -30,3 +30,36 @@ def test_client_configuration_rejects_other_types(tmp_path):
     service=GoogleCalendar(SimpleNamespace(data_directory=tmp_path))
     with pytest.raises(ValueError): service.configure({'web':{'client_id':'x'}})
     assert not service.status()['connected']
+
+
+def test_expired_permission_is_not_reported_as_connected(tmp_path,monkeypatch):
+    import json
+    import pytest
+    (tmp_path/'google-client.json').write_text(json.dumps({'client_id':'test','client_secret':'test'}))
+    (tmp_path/'google-token.json').write_text(json.dumps({'refresh_token':'test','expires_at':0}))
+    monkeypatch.setattr(httpx,'post',lambda *a,**kw:httpx.Response(400,json={'error':'invalid_grant'},request=httpx.Request('POST','https://oauth2.googleapis.com/token')))
+    service=GoogleCalendar(SimpleNamespace(data_directory=tmp_path))
+    with pytest.raises(httpx.HTTPStatusError): service.access_token()
+    assert not service.status()['connected']
+    assert service.status()['reauth_required']
+    assert (tmp_path/'google-token.json').exists()
+
+
+def test_packaged_client_is_pinned_and_preserves_existing_connection(tmp_path, monkeypatch):
+    import json
+    import backend.app.calendar as module
+    bundled = tmp_path/'bundle.json'
+    bundled.write_text(json.dumps({'installed': {'client_id':'first.apps.googleusercontent.com', 'client_secret':'test'}}))
+    monkeypatch.setattr(module, 'PACKAGED_CLIENT', bundled)
+    root = tmp_path/'user'
+    root.mkdir()
+    service = GoogleCalendar(SimpleNamespace(data_directory=root))
+    assert service.status()['client_configured']
+    assert service.client()['client_id'] == 'first.apps.googleusercontent.com'
+    bundled.write_text('{}')
+    assert service.client()['client_id'] == 'first.apps.googleusercontent.com'
+    (root/'google-token.json').write_text('{"refresh_token":"test"}')
+    (root/'google-client.json').unlink()
+    import pytest
+    with pytest.raises(ValueError, match='Google'):
+        service.client()

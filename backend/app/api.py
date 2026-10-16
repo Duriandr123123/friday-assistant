@@ -71,6 +71,7 @@ def view(row):
             "attempts": row.attempts, "next_attempt": row.next_attempt, "error": row.error,
             "raw_transcript": row.raw_transcript, "edited_transcript": row.edited_transcript,
             "result": row.result, "processing_mode": row.processing_mode,
+            "assistant_turn_id": row.id if row.source.startswith('assistant:') else None,
             "has_audio": bool(row.audio_path and Path(row.audio_path).is_file()),
             "has_markdown": bool(row.markdown_path and Path(row.markdown_path).is_file()),
             "sha256": row.sha256}
@@ -88,6 +89,9 @@ def upload(request: Request, file: Annotated[UploadFile, File()],
            recording_id: Annotated[UUID, Form()], captured_at: Annotated[str, Form()],
            source: Annotated[str, Form(max_length=80)] = "android",
            device: Annotated[str, Form(max_length=120)] = "unknown"):
+    if source.startswith('assistant:'):
+        try: UUID(source.split(':',1)[1])
+        except ValueError: raise HTTPException(422,'Неверный идентификатор диалога')
     try:
         captured = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
         if captured.tzinfo is None:

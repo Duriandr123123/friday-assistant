@@ -27,17 +27,25 @@ def create_app(settings=None, *, worker=True, stt=None, llm=None, notes=None):
             app.state.settings = settings
             app.state.sessions = sessionmaker(engine, expire_on_commit=False)
             app.state.processor = Processor(settings, engine, stt=stt, llm=llm, notes=notes)
+            from backend.app.assistant import AssistantService
+            app.state.assistant = AssistantService(settings, app.state.processor)
+            app.state.processor.assistant = app.state.assistant
             if worker:
                 app.state.processor.start()
+                app.state.assistant.start()
             yield
         finally:
+            if hasattr(app.state, 'assistant'):
+                app.state.assistant.stop()
             if hasattr(app.state, "processor"):
                 app.state.processor.stop()
             engine.dispose()
             lock.release()
 
-    app = FastAPI(title="Джарвис — заметки", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Пятница — личный помощник", version="0.5.0", lifespan=lifespan)
     app.include_router(router)
+    from backend.app.assistant import router as assistant_router
+    app.include_router(assistant_router)
     import threading
     from backend.app.onboarding import router as pairing_router
     app.state.pair_code=None
@@ -63,7 +71,7 @@ def create_app(settings=None, *, worker=True, stt=None, llm=None, notes=None):
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "service": "jarvis-thoughts", "version": "0.1.0"}
+        return {"status": "ok", "service": "jarvis-thoughts", "version": "0.5.0"}
 
     static = Path(__file__).parent / "web"
     if static.is_dir():

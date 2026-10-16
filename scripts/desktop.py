@@ -17,6 +17,9 @@ def smoke():
         with TestClient(create_app(s,worker=False)) as c:
             assert c.get('/health').status_code==200
             assert c.get('/').status_code==200
+            c.headers['Authorization']='Bearer smoke-only-token-abcdefghijklmnopqrstuvwxyz'
+            assert c.get('/assistant/turns').status_code==200
+            assert c.get('/assistant/capabilities').status_code==200
         import logging
         logging.shutdown()
     (home/'smoke-ok.txt').parent.mkdir(parents=True,exist_ok=True)
@@ -56,7 +59,10 @@ def main():
             path.mkdir(parents=True,exist_ok=True)
             token=(running_settings or settings).api_token.get_secret_value() or secrets.token_urlsafe(32)
             values={'API_TOKEN':token,'OPENAI_API_KEY':fields['key'].get().strip(),'OPENAI_LLM_MODEL':fields['model'].get().strip(),
-                'STT_PROVIDER':'openai','LLM_PROVIDER':'openai','NOTES_DIRECTORY':str(path),'DATA_DIRECTORY':str(home/'data')}
+                'STT_PROVIDER':'openai','LLM_PROVIDER':'openai','NOTES_DIRECTORY':str(path),'DATA_DIRECTORY':str(home/'data'),
+                'OPENAI_AGENT_MODEL':settings.openai_agent_model,'AGENTS_PYTHON':str(settings.agents_python),
+                'ASSISTANT_CITY':settings.assistant_city,'ASSISTANT_WEB_SEARCH':settings.assistant_web_search,
+                'ASSISTANT_MAX_STEPS':settings.assistant_max_steps}
             config.write_text('\n'.join(k+'='+json.dumps(v,ensure_ascii=False) for k,v in values.items())+'\n',encoding='utf-8')
             running_settings=Settings(_env_file=config)
             from backend.app.main import create_app

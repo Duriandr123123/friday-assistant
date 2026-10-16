@@ -1,0 +1,6 @@
+browser-use==0.13.11
+gpt-researcher==0.15.1
+mem0ai==2.0.5
+markitdown==0.1.8
+ddgs==9.16.0
+pypdf==6.16.2
